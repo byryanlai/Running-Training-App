@@ -105,7 +105,7 @@ svg text{font-family:Inter,system-ui,sans-serif}
 </div></nav>
 <script>
 /* ---------- storage ---------- */
-const KEY='runplan.v1';
+const KEY='runplan.v1',APP_VERSION='1.1.0';
 function blank(){return {settings:null,runs:[],history:[],bests:{},overrides:{}}}
 function load(){try{const t=localStorage.getItem(KEY);if(t)return Object.assign(blank(),JSON.parse(t))}catch(e){}return blank()}
 let S=load();
@@ -236,14 +236,17 @@ function phaseInfo(i,nWeeks){
 function sessionsFor(w,ov){
   const st=S.settings,mode=MODES[st.mode],goal=st.goal.distance;
   ov=ov||S.overrides[w.ws]||{};
+  const shift=ov.shift!=null?ov.shift:(st.shift||0);
   let tpl;
   if(w.phase==='Race'){
     const rd=st.goal.raceDate;
     tpl=[{type:'easy',dw:1,km:Math.max(3,Math.round(w.full*.25*2)/2)},{type:'easy',dw:3,km:3,note:'+ 4×100m strides'},{type:'race',date:rd,km:DIST[goal]}];
+    tpl.forEach(s=>{if(s.dw!=null)s.dw=(s.dw+shift)%7});
   }else{
     tpl=mode.runs===3
       ?[{type:w.idx%2?'tempo':'intervals',dw:1},{type:'easy',dw:3},{type:'long',dw:5}]
-      :[{type:'intervals',dw:1},{type:'tempo',dw:3},{type:'easy',dw:5},{type:'long',dw:0}];
+      :[{type:'intervals',dw:1},{type:'tempo',dw:3},{type:'easy',dw:5},{type:'long',dw:6}];
+    tpl.forEach(s=>s.dw=(s.dw+shift)%7);
     if(w.trial){const h=tpl.find(s=>s.type==='tempo')||tpl.find(s=>HARD(s.type));h.type='trial'}
     const WT={long:1.6,tempo:1,intervals:.9,easy:1,trial:1};
     const tot=tpl.reduce((a,s)=>a+WT[s.type],0);
@@ -407,9 +410,9 @@ function nextSession(P){const t=today();for(const w of P.weeks)for(const s of w.
 function vLog(){
   const f=ui.form||(ui.form=newForm());
   const P=computePlan(),ws=mondayOf(f.date),w=P.weeks.find(x=>x.ws===ws);
-  const opts=w?w.sessions.filter(s=>!s.dropped&&(!runFor(s))):[];
+  const opts=w?w.sessions.filter(s=>{if(s.dropped)return false;const r=runFor(s);return !r||r.id===f.editing}):[];
   if(f.planned&&!opts.some(s=>s.id===f.planned))f.planned=null;
-  let h=`<div class="stack"><div class="row c"><h1>Log a run</h1></div>`;
+  let h=`<div class="stack"><div class="row c"><h1>${f.editing?'Edit run':'Log a run'}</h1>${f.editing?'<button class="link mut" data-a="cancelEdit">Cancel</button>':''}</div>`;
   if(ui.msg)h+=`<div class="soft"><div class="txt">${ui.msg}</div></div>`;
   if(ui.swap){const s=findSession(ui.swap.sid);if(s)h+=`<div class="note">${ICON}<div class="stack s8"><div>Replace ${DAYS[dow(s.date)]}’s ${TITLE[s.type].toLowerCase()} run with this one?</div><div class="grid2"><button class="btn sm" data-a="swapYes">Yes, replace</button><button class="btn sm ghost" data-a="swapNo">No, keep both</button></div></div></div>`}
   h+=`<label class="f">Date<input type="date" data-f="date" value="${f.date}" max="${today()}"></label>`;
@@ -420,12 +423,12 @@ function vLog(){
   h+=`<label class="f">Notes (optional)<input data-f="notes" value="${esc(f.notes)}" placeholder="e.g. legs heavy after gym"></label>`;
   h+=`<div class="card" style="gap:8px;padding:12px 14px"><div class="eyebrow">This run is</div><select data-f="planned"><option value="">Unscheduled</option>${opts.map(s=>`<option value="${s.id}" ${f.planned===s.id?'selected':''}>${fmtDate(s.date)} · ${sessTitle(s)}</option>`).join('')}</select><div class="small">Unscheduled runs still count towards your weekly km and fitness.</div></div>`;
   if(f.err)h+=`<div class="err">${f.err}</div>`;
-  h+=`<button class="btn" data-a="saveRun">Save run</button>`;
+  h+=`<button class="btn" data-a="saveRun">${f.editing?'Save changes':'Save run'}</button>`;
   // recent
   const recent=[...S.runs].sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0).slice(0,12);
   if(recent.length){
     h+=`<div class="stack s8"><h2>Recent runs</h2><div class="list">`;
-    for(const r of recent){h+=`<div class="li"><div class="grow"><div class="t1">${TYPEL[r.type]} · ${km1(r.km)} km</div><div class="t2">${fmtDate(r.date)} · ${fmtT(r.sec)} · ${fmtPace(r.sec/r.km)}${r.effort?' · effort '+r.effort:''}${r.planned?'':' · unscheduled'}${r.notes?' · '+esc(r.notes):''}</div></div><button class="link mut" data-a="delRun" data-v="${r.id}">${ui.confirm===r.id?'Confirm':'Delete'}</button></div>`}
+    for(const r of recent){h+=`<div class="li"><div class="grow"><div class="t1">${TYPEL[r.type]} · ${km1(r.km)} km</div><div class="t2">${fmtDate(r.date)} · ${fmtT(r.sec)} · ${fmtPace(r.sec/r.km)}${r.effort?' · effort '+r.effort:''}${r.planned?'':' · unscheduled'}${r.notes?' · '+esc(r.notes):''}</div></div><div style="display:flex;gap:14px"><button class="link" data-a="editRun" data-v="${r.id}">Edit</button><button class="link mut" data-a="delRun" data-v="${r.id}">${ui.confirm===r.id?'Confirm':'Delete'}</button></div></div>`}
     h+='</div></div>';
   }
   return h+'</div>';
@@ -463,7 +466,7 @@ function vProgress(){
   h+=`<div class="stack s4 tbl"><div class="row c"><h2>All distances</h2><button class="link" data-a="view" data-v="bests">Edit best times</button></div><div class="h"><span>Distance</span><span>Predicted</span><span>Best</span></div>`;
   for(const k of Object.keys(DIST)){const b=bestFor(k);h+=`<button class="r ${k===dk?'on':''}" data-a="pDist" data-v="${k}"><span>${DL[k]}${k===gk?' · goal':''}</span><span style="font-weight:600">${fmtT(predict(k,e5))}</span><span style="color:${b?'#111':'#5E5E5E'}">${b?fmtT(b.sec)+'<span class="small"> · '+fmtMonth(b.date||t)+'</span>':'Not set'}</span></button>`}
   h+=`<div class="small">Half and marathon predictions include a safety margin. Tap a row to see its trend.</div></div>`;
-  h+=`<div class="card"><div class="eyebrow">Your data</div><div class="small" id="sync">${syncText()}</div><div class="grid2"><button class="btn sm ghost" data-a="view" data-v="export">Export</button><button class="btn sm ghost" data-a="view" data-v="import">Import</button></div><button class="link mut" data-a="reset">${ui.confirm==='reset'?'Tap again to erase everything':'Reset all data'}</button></div>`;
+  h+=`<div class="card"><div class="eyebrow">Your data</div><div class="small" id="sync">${syncText()}</div><div class="grid2"><button class="btn sm ghost" data-a="view" data-v="export">Export</button><button class="btn sm ghost" data-a="view" data-v="import">Import</button></div><div class="row c"><button class="link mut" data-a="reset">${ui.confirm==='reset'?'Tap again to erase everything':'Reset all data'}</button><span class="small">Version ${APP_VERSION}</span></div></div>`;
   return h+'</div>';
 }
 function chart(pts,target){
@@ -499,6 +502,8 @@ function vPlan(){
   let h=`<div class="stack"><div class="row c"><h1>Plan</h1><button class="btn sm ghost" style="width:auto" data-a="view" data-v="goal">Edit goal</button></div>`;
   h+=`<div class="stack s8"><div class="sub">${DL[st.goal.distance]} under ${fmtT(st.goal.target)} · ${st.goal.raceDate?'race '+fmtDate(st.goal.raceDate):'no race date'} · ${MODES[st.mode].label}</div>`;
   const phases=P.nWeeks?['Base','Build','Peak','Taper']:['Base','Build'],ci=phases.indexOf(w.phase==='Race'?'Taper':w.phase);
+  const dl=MODES[st.mode].runs===3?['Mon Wed Fri','Tue Thu Sat']:['Mon Wed Fri Sat','Tue Thu Sat Sun'];
+  h+=`<div class="stack s4" style="margin-top:4px"><div class="small">Run days</div><div class="seg">${dl.map((l,i)=>`<button class="${(st.shift||0)===i?'on':''}" data-a="setShift" data-v="${i}">${l}</button>`).join('')}</div></div>`;
   h+=`<div class="phase">${phases.map((p,i)=>`<div class="${i<ci?'past':i===ci?'on':''}"><i></i><span>${p}${i===ci?' · wk '+(w.idx+1):''}</span></div>`).join('')}</div></div>`;
   h+=`<div class="row c"><h2>This week</h2><div class="row c" style="gap:12px"><div class="sub">${km1(w.target)} km</div><button class="link" data-a="adjust">Adjust</button></div></div>`;
   h+=sessList(w,p5,true);
@@ -529,9 +534,9 @@ function sessList(w,p5,showDropped,adj){
 function vAdjust(){
   const P=computePlan(),a=ui.adj,w0=P.weeks.find(x=>x.ws===a.ws);
   if(!w0){ui.view=null;return vPlan()}
-  const w=Object.assign({},w0);w.sessions=sessionsFor(w,{count:a.count,moves:a.moves});
+  const w=Object.assign({},w0);w.sessions=sessionsFor(w,{count:a.count,moves:a.moves,shift:a.shift});
   const full=w0.sessions.length,isLight=MODES[S.settings.mode].runs===3;
-  const kept=w.sessions.filter(s=>!s.dropped),km=kept.reduce((x,s)=>x+s.km,0),fullKm=sessionsFor(w,{moves:a.moves}).reduce((x,s)=>x+s.km,0);
+  const kept=w.sessions.filter(s=>!s.dropped),km=kept.reduce((x,s)=>x+s.km,0),fullKm=sessionsFor(w,{moves:a.moves,shift:a.shift}).reduce((x,s)=>x+s.km,0);
   let h=`<div class="stack"><div class="row c"><h1>Adjust week</h1><button class="link mut" data-a="closeView">Cancel</button></div>`;
   const nx=P.weeks.find(x=>x.ws===addDays(P.cur,7));
   if(nx)h+=`<div class="seg"><button class="${a.ws===P.cur?'on':''}" data-a="adjWeek" data-v="cur">This week</button><button class="${a.ws!==P.cur?'on':''}" data-a="adjWeek" data-v="next">Next week</button></div>`;
@@ -541,6 +546,8 @@ function vAdjust(){
     const dropped=w.sessions.filter(s=>s.dropped);
     h+=`<div class="soft" style="padding:10px 12px"><div class="txt">${dropped.length?`Drops ${dropped.map(s=>DAYS[dow(s.date)]+'’s '+TITLE[s.type].toLowerCase()).join(' and ')}. ${km1(fullKm)} → ${km1(km)} km. Nothing is squeezed into other days.`:`Full week: ${km1(km)} km${isLight?' (Light mode)':''}.`}</div></div></div>`;
   }
+  {const dl=MODES[S.settings.mode].runs===3?['Mon Wed Fri','Tue Thu Sat']:['Mon Wed Fri Sat','Tue Thu Sat Sun'],sh=a.shift!=null?a.shift:(S.settings.shift||0);
+  h+=`<div class="stack s8"><h2>Run days this week</h2><div class="seg">${dl.map((l,i)=>`<button class="${sh===i?'on':''}" data-a="adjShift" data-v="${i}">${l}</button>`).join('')}</div></div>`;}
   h+=`<div class="stack s8"><div class="row"><h2>Move sessions</h2><div class="small">Arrows move a day</div></div>${sessList(w,estimate(today())?estimate(today())/5:null,true,true)}</div>`;
   warnings(kept).forEach(t=>h+=note(t));
   h+=`<div class="sub" style="text-align:center">Next week rebuilds from what you actually run</div><div class="btns"><button class="btn ghost" data-a="adjReset">Reset</button><button class="btn" data-a="adjApply">Apply changes</button></div></div>`;
@@ -622,27 +629,31 @@ const A={
     if(!f.date||f.date>today()){f.err='Pick a date up to today.';return render()}
     if(!(km>0)||km>200){f.err='Enter the distance in km, e.g. 7.0';return render()}
     if(!sec){f.err='Enter the time as mm:ss or h:mm:ss';return render()}
-    const r={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),date:f.date,type:f.type,km,sec,effort:f.effort,notes:f.notes.trim(),planned:f.planned||null};
-    S.runs.push(r);
+    const r={id:f.editing||(Date.now().toString(36)+Math.random().toString(36).slice(2,5)),date:f.date,type:f.type,km,sec,effort:f.effort,notes:f.notes.trim(),planned:f.planned||null};
+    if(f.editing){const i=S.runs.findIndex(x=>x.id===f.editing);if(i>=0)S.runs[i]=r;else S.runs.push(r)}else S.runs.push(r);
     ui.swap=null;
-    if(!r.planned){
+    if(!r.planned&&!f.editing){
       const P=computePlan(),w=P.weeks.find(x=>x.ws===mondayOf(r.date));
       if(w){const c=w.sessions.find(s=>!s.dropped&&!runFor(s)&&s.date>=r.date&&(s.type===r.type||(r.type==='race'&&s.type==='trial'))&&Math.abs(s.km-km)/s.km<=.35);if(c)ui.swap={rid:r.id,sid:c.id}}
     }
-    save();ui.msg=`Saved: ${TYPEL[r.type]} · ${km1(km)} km in ${fmtT(sec)} (${fmtPace(sec/km)}).`;
+    save();ui.msg=`${f.editing?'Updated':'Saved'}: ${TYPEL[r.type]} · ${km1(km)} km in ${fmtT(sec)} (${fmtPace(sec/km)}).`;
     ui.form=newForm();go(()=>{});
   },
   swapYes:()=>go(()=>{const r=S.runs.find(x=>x.id===ui.swap.rid);if(r){r.planned=ui.swap.sid;save()}ui.swap=null;ui.msg='Done. That session now counts as completed.'}),
   swapNo:()=>go(()=>{ui.swap=null}),
+  editRun:v=>{const r=S.runs.find(x=>x.id===v);if(!r)return;go(()=>{ui.form={date:r.date,type:r.type,km:String(r.km),time:fmtT(r.sec),effort:r.effort||null,notes:r.notes||'',planned:r.planned,err:null,editing:r.id};ui.msg=null;ui.swap=null;ui.confirm=null})},
+  cancelEdit:()=>go(()=>{ui.form=newForm();ui.msg=null}),
   delRun:v=>{if(ui.confirm!==v){ui.confirm=v;return render()}S.runs=S.runs.filter(r=>r.id!==v);ui.confirm=null;save();render()},
   pDist:v=>{ui.progDist=v;render()},
   mode:v=>{S.settings.mode=v;save();render()},
-  adjust:v=>go(()=>{const cur=mondayOf(today()),ws=v==='next'?addDays(cur,7):cur,o=S.overrides[ws]||{};ui.adj={ws,count:o.count||null,moves:Object.assign({},o.moves||{})};ui.view='adjust'}),
-  adjWeek:v=>{const cur=mondayOf(today()),ws=v==='next'?addDays(cur,7):cur,o=S.overrides[ws]||{};ui.adj={ws,count:o.count||null,moves:Object.assign({},o.moves||{})};render()},
+  adjust:v=>go(()=>{const cur=mondayOf(today()),ws=v==='next'?addDays(cur,7):cur,o=S.overrides[ws]||{};ui.adj={ws,count:o.count||null,shift:o.shift!=null?o.shift:null,moves:Object.assign({},o.moves||{})};ui.view='adjust'}),
+  adjWeek:v=>{const cur=mondayOf(today()),ws=v==='next'?addDays(cur,7):cur,o=S.overrides[ws]||{};ui.adj={ws,count:o.count||null,shift:o.shift!=null?o.shift:null,moves:Object.assign({},o.moves||{})};render()},
   adjCount:v=>{ui.adj.count=+v;render()},
-  mv:v=>{const [id,dir]=v.split('|'),P=computePlan(),w=P.weeks.find(x=>x.ws===ui.adj.ws);const ss=sessionsFor(w,{count:ui.adj.count,moves:ui.adj.moves}),s=ss.find(x=>x.id===id);if(!s)return;const di=clamp((dow(s.date)+6)%7+(+dir),0,6),nd=(di+1)%7;ui.adj.moves[id]=nd;if(s.dw!=null&&nd===s.dw)delete ui.adj.moves[id];render()},
-  adjReset:()=>{ui.adj.count=null;ui.adj.moves={};render()},
-  adjApply:()=>go(()=>{const a=ui.adj,o={};if(a.count)o.count=a.count;if(Object.keys(a.moves).length)o.moves=a.moves;if(Object.keys(o).length)S.overrides[a.ws]=o;else delete S.overrides[a.ws];save();ui.view=null;ui.tab='plan'}),
+  mv:v=>{const [id,dir]=v.split('|'),P=computePlan(),w=P.weeks.find(x=>x.ws===ui.adj.ws);const ss=sessionsFor(w,{count:ui.adj.count,moves:ui.adj.moves,shift:ui.adj.shift}),s=ss.find(x=>x.id===id);if(!s)return;const di=clamp((dow(s.date)+6)%7+(+dir),0,6),nd=(di+1)%7;ui.adj.moves[id]=nd;if(s.dw!=null&&nd===s.dw)delete ui.adj.moves[id];render()},
+  adjReset:()=>{ui.adj.count=null;ui.adj.moves={};ui.adj.shift=null;render()},
+  adjShift:v=>{ui.adj.shift=(+v===(S.settings.shift||0))?null:+v;ui.adj.moves={};render()},
+  setShift:v=>{S.settings.shift=+v;save();render()},
+  adjApply:()=>go(()=>{const a=ui.adj,o={};if(a.count)o.count=a.count;if(a.shift!=null)o.shift=a.shift;if(Object.keys(a.moves).length)o.moves=a.moves;if(Object.keys(o).length)S.overrides[a.ws]=o;else delete S.overrides[a.ws];save();ui.view=null;ui.tab='plan'}),
   dDist:v=>{ui.draft.distance=v;render()},
   dMode:v=>{ui.draft.mode=v;render()},
   goalSave:()=>{const d=ui.draft,sec=parseT(d.target);if(!sec){d.err='Enter a target time, e.g. 19:59 or 1:39:00';return render()}
