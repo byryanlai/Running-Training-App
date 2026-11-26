@@ -5,6 +5,15 @@ Screen mockups: https://claude.ai/artifact/S5p57ry44jdetwkGycWCR4
 
 Version numbers: MAJOR.MINOR.PATCH. New features bump MINOR, fixes bump PATCH. The current version shows at the bottom of the Progress tab.
 
+## 1.2.0 — 26 Nov 2026
+- Setup asks for your current weekly distance instead of a week-by-week log, then your race and time-trial times. Existing week-by-week entries are converted to a weekly figure.
+- Time fields work with the iPhone number pad: type 2000 and it becomes 20:00 as you type (130000 → 1:30:00).
+- Times and distances that can't be right (pace faster than 2:30/km or slower than 15:00/km) are rejected with a message.
+- Entries like that already saved are left out of predictions. Bad best times are removed, and Today shows a note with a link to fix them.
+- Redo setup (Progress › Your data) re-runs setup and keeps your logged runs.
+- Edit goal now includes your current weekly distance.
+- Fixed trend and review figures showing hours as huge minute counts (e.g. +7354:49).
+
 ## 1.1.0 — 26 Nov 2026
 - Default run days are now Mon, Wed, Fri, Sat (long run on Saturday).
 - Run days setting on the Plan tab: standard (Mon Wed Fri Sat) or shifted a day later (Tue Thu Sat Sun). Light mode: Mon Wed Fri or Tue Thu Sat.
