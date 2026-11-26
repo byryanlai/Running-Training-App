@@ -105,10 +105,11 @@ svg text{font-family:Inter,system-ui,sans-serif}
 </div></nav>
 <script>
 /* ---------- storage ---------- */
-const KEY='runplan.v1',APP_VERSION='1.1.0';
+const KEY='runplan.v1',APP_VERSION='1.2.0';
 function blank(){return {settings:null,runs:[],history:[],bests:{},overrides:{}}}
 function load(){try{const t=localStorage.getItem(KEY);if(t)return Object.assign(blank(),JSON.parse(t))}catch(e){}return blank()}
 let S=load();
+let FIXES=[];
 function save(){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}cloudPush()}
 /* cloud sync: per-person private doc in the artifact's database */
 const cloud={doc:null,state:'local',busy:false,again:false,timer:null};
@@ -121,7 +122,14 @@ async function cloudWrite(){
   cloud.busy=false;if(cloud.again){cloud.again=false;cloudWrite()}
   refreshSync();
 }
-function adopt(d){try{const x=JSON.parse(d.json);if(x&&Array.isArray(x.runs)){S=Object.assign(blank(),x);try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}return true}}catch(e){}return false}
+function sanitize(){
+  FIXES=[];if(!S.settings)return;
+  for(const k of Object.keys(S.bests||{})){const b=S.bests[k];if(b&&b.sec&&!okPace(b.sec/DIST[k])){FIXES.push(`Your ${DL[k]} best (${fmtT(b.sec)}) looked wrong, so I removed it. <button class="link" data-a="view" data-v="bests">Re-enter best times</button>`);delete S.bests[k]}}
+  const g=S.settings.goal;if(g&&g.target&&!okPace(g.target/DIST[g.distance]))FIXES.push(`Your target (${fmtT(g.target)}) looks wrong. <button class="link" data-a="view" data-v="goal">Edit goal</button>`);
+  if(!(S.settings.weeklyKm>0)&&S.history&&S.history.length){S.settings.weeklyKm=Math.round(mean(S.history.map(h=>+h.km||0)))}
+  if(S.history&&S.history.length)S.history=[];
+}
+function adopt(d){try{const x=JSON.parse(d.json);if(x&&Array.isArray(x.runs)){S=Object.assign(blank(),x);sanitize();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}return true}}catch(e){}return false}
 function refreshSync(){const el=document.getElementById('sync');if(el)el.textContent=syncText()}
 function syncText(){return {synced:'Synced to your Claude account, so it works on any device you sign in on.',error:'Couldn\u2019t reach your account just now. Saved on this device; it will sync on your next change.',full:'Account storage is full. Export your data and remove old runs.',local:'Saved in this browser on this device. Export a copy now and then.',loading:'Connecting to your account\u2026'}[cloud.state]}
 async function cloudInit(){
@@ -162,8 +170,19 @@ const fmtDay=s=>{const d=parseD(s);return d.getDate()+' '+MON[d.getMonth()]};
 const fmtMonth=s=>{const d=parseD(s.length===7?s+'-01':s);return MON[d.getMonth()]+' '+d.getFullYear()};
 function fmtT(sec){if(sec==null||!isFinite(sec))return '—';sec=Math.round(sec);const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return h?h+':'+pad(m)+':'+pad(s):m+':'+pad(s)}
 function fmtPace(p){if(!p||!isFinite(p))return '—';p=Math.round(p);return Math.floor(p/60)+':'+pad(p%60)+'/km'}
-function fmtDelta(sec){const s=Math.round(Math.abs(sec));return (sec<0?'−':'+')+(s>=60?Math.floor(s/60)+':'+pad(s%60):s+'s')}
-function parseT(str){str=(str||'').trim();if(!str)return null;const p=str.split(':');if(p.some(x=>x.trim()===''||isNaN(x)))return null;const n=p.map(Number);let s=null;if(n.length===1)s=n[0]*60;else if(n.length===2)s=n[0]*60+n[1];else if(n.length===3)s=n[0]*3600+n[1]*60+n[2];return s>0?s:null}
+function fmtDelta(sec){const s=Math.round(Math.abs(sec));return (sec<0?'−':'+')+(s>=60?fmtT(s):s+'s')}
+function parseT(str){
+  str=(str||'').trim();if(!str)return null;
+  let h=0,m=0,sec=0;
+  if(str.includes(':')){const p=str.split(':');if(p.length>3||p.some(x=>!/^\d+$/.test(x.trim())))return null;const n=p.map(Number);
+    if(n.length===2){[m,sec]=n}else{[h,m,sec]=n;if(m>59)return null}}
+  else{const d=str.replace(/\D/g,'');if(!d||d.length>6)return null;
+    if(d.length<=2)m=+d;else if(d.length<=4){m=+d.slice(0,-2);sec=+d.slice(-2)}else{h=+d.slice(0,-4);m=+d.slice(-4,-2);sec=+d.slice(-2);if(m>59)return null}}
+  if(sec>59)return null;const t=h*3600+m*60+sec;return t>0?t:null;
+}
+function fmtDigits(v){const d=String(v).replace(/\D/g,'').replace(/^0+(?=\d{3})/,'').slice(0,6);if(d.length<=2)return d;if(d.length<=4)return d.slice(0,-2)+':'+d.slice(-2);return d.slice(0,-4)+':'+d.slice(-4,-2)+':'+d.slice(-2)}
+const PACE_MIN=150,PACE_MAX=900;
+const okPace=p=>p>=PACE_MIN&&p<=PACE_MAX;
 const km1=x=>{const v=Math.round(x*10)/10;return v%1?v.toFixed(1):String(v)};
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -192,9 +211,9 @@ function predict(k,e5){return e5==null?null:riegel(e5,5,DIST[k])*MARGIN[k]}
 function estimate(asOf){
   let W=0,X=0,Wt=0,Xt=0;
   const add=(t5,w,date,tr)=>{const age=daysBetween(date,asOf);if(age<0||age>730)return;const ww=w*Math.pow(.5,age/120);if(tr){Wt+=ww;Xt+=ww*t5}else{W+=ww;X+=ww*t5}};
-  for(const k in S.bests){const b=S.bests[k];if(b&&b.sec){const d=b.date?(b.date.length===7?b.date+'-15':b.date):addDays(asOf,-200);add(riegel(b.sec/MARGIN[k],DIST[k],5),1,d)}}
+  for(const k in S.bests){const b=S.bests[k];if(b&&b.sec&&okPace(b.sec/DIST[k])){const d=b.date?(b.date.length===7?b.date+'-15':b.date):addDays(asOf,-200);add(riegel(b.sec/MARGIN[k],DIST[k],5),1,d)}}
   for(const r of S.runs){
-    if(r.date>asOf||!(r.km>0)||!(r.sec>0))continue;
+    if(r.date>asOf||!(r.km>0)||!(r.sec>0)||!okPace(r.sec/r.km))continue;
     if(r.type==='race'){if(r.km>=3)add(riegel(r.sec/marginFor(r.km),r.km,5),1.2,r.date)}
     else if(r.effort>=5&&r.km>=3){const f=1+(10-r.effort)*.045;add(r.sec/r.km/f*5,r.type==='intervals'?.1:.25,r.date,true)}
   }
@@ -202,15 +221,16 @@ function estimate(asOf){
   return W>.05?X/W:null;
 }
 function bestFor(k){
-  let best=null;const b=S.bests[k];if(b&&b.sec)best={sec:b.sec,date:b.date};
-  for(const r of S.runs){if(r.type==='race'&&r.sec>0&&Math.abs(r.km-DIST[k])/DIST[k]<.03){const sec=r.sec*DIST[k]/r.km;if(!best||sec<best.sec)best={sec,date:r.date}}}
+  let best=null;const b=S.bests[k];if(b&&b.sec&&okPace(b.sec/DIST[k]))best={sec:b.sec,date:b.date};
+  for(const r of S.runs){if(r.type==='race'&&r.sec>0&&okPace(r.sec/r.km)&&Math.abs(r.km-DIST[k])/DIST[k]<.03){const sec=r.sec*DIST[k]/r.km;if(!best||sec<best.sec)best={sec,date:r.date}}}
   return best;
 }
 
 /* ---------- plan engine ---------- */
-function weekKm(ws){const we=addDays(ws,6);let k=0;for(const r of S.runs)if(r.date>=ws&&r.date<=we)k+=+r.km||0;for(const h of S.history)if(h.ws===ws)k+=+h.km||0;return k}
+function weekKm(ws){const we=addDays(ws,6);let k=0;for(const r of S.runs)if(r.date>=ws&&r.date<=we)k+=+r.km||0;return k}
 function startLevel(){
   const st=S.settings,g=st.goal.distance,ks=[];
+  if(st.weeklyKm>0)return clamp(st.weeklyKm,5,MAXKM[g]);
   for(let i=1;i<=6;i++)ks.push(weekKm(addDays(st.startWeek,-7*i)));
   let last=-1;for(let i=0;i<ks.length;i++)if(ks[i]>0)last=i;
   if(last<0)return STARTKM[g]*(st.mode==='light'?.8:1);
@@ -388,6 +408,9 @@ function vToday(){
   const notes=[];
   if(w.phase==='Done')notes.push('Your goal race is done. Set a new goal from the Plan tab.');
   if(w.reason&&!/^On track|^Draft/.test(w.reason)&&w.idx>0)notes.push(w.reason);
+  FIXES.forEach(t=>notes.push(t));
+  const badRuns=S.runs.filter(r=>r.km>0&&r.sec>0&&!okPace(r.sec/r.km));
+  if(badRuns.length)notes.push(`${badRuns.length===1?'One run looks':badRuns.length+' runs look'} wrong (${badRuns.slice(0,2).map(r=>fmtDate(r.date)+': '+km1(r.km)+' km in '+fmtT(r.sec)).join(', ')}) and ${badRuns.length===1?'is':'are'} left out of your predictions. <button class="link" data-a="tab" data-v="log">Fix in Log</button>`);
   const missed=w.sessions.filter(s=>status(s)==='missed');
   if(missed.length){const left=w.sessions.filter(s=>{const x=status(s);return x==='today'||x==='upcoming'}).reduce((a,s)=>a+s.km,0);notes.push(`${missed.map(s=>DAYS[dow(s.date)]+'’s '+TITLE[s.type].toLowerCase()).join(', ')} missed and not moved. This week is now ${km1(w.actual+left)} km.`)}
   const y=addDays(t,-1),hardY=S.runs.find(r=>r.date===y&&r.effort>=8&&!r.planned);
@@ -417,7 +440,7 @@ function vLog(){
   if(ui.swap){const s=findSession(ui.swap.sid);if(s)h+=`<div class="note">${ICON}<div class="stack s8"><div>Replace ${DAYS[dow(s.date)]}’s ${TITLE[s.type].toLowerCase()} run with this one?</div><div class="grid2"><button class="btn sm" data-a="swapYes">Yes, replace</button><button class="btn sm ghost" data-a="swapNo">No, keep both</button></div></div></div>`}
   h+=`<label class="f">Date<input type="date" data-f="date" value="${f.date}" max="${today()}"></label>`;
   h+=`<div class="stack s8"><div class="sub">Type</div><div class="chips">${TYPES.map(t=>`<button class="chip ${f.type===t?'on':''}" data-a="fType" data-v="${t}">${TYPEL[t]}</button>`).join('')}</div></div>`;
-  h+=`<div class="grid2"><label class="f">Distance (km)<input class="lg" inputmode="decimal" data-f="km" value="${esc(f.km)}" placeholder="7.0"></label><label class="f">Time<input class="lg" inputmode="numeric" data-f="time" value="${esc(f.time)}" placeholder="mm:ss"></label></div>`;
+  h+=`<div class="grid2"><label class="f">Distance (km)<input class="lg" inputmode="decimal" data-f="km" value="${esc(f.km)}" placeholder="7.0"></label><label class="f">Time<input class="lg" inputmode="numeric" data-f="time" data-time="1" pattern="[0-9:]*" value="${esc(f.time)}" placeholder="mm:ss"></label></div>`;
   h+=`<div class="soft" style="padding:12px 14px"><div class="row"><div class="sub" style="font-size:14px">Avg pace</div><div class="t1" id="pace">${livePace(f)}</div></div></div>`;
   h+=`<div class="stack s8"><div class="row sub"><span>Effort</span><span>${f.effort?f.effort+' · '+effortLabel(f.effort):'1 easy · 10 max'}</span></div><div class="eff">${[1,2,3,4,5,6,7,8,9,10].map(n=>`<button class="${f.effort===n?'on':''}" data-a="fEff" data-v="${n}" aria-label="Effort ${n}">${n}</button>`).join('')}</div></div>`;
   h+=`<label class="f">Notes (optional)<input data-f="notes" value="${esc(f.notes)}" placeholder="e.g. legs heavy after gym"></label>`;
@@ -440,7 +463,7 @@ function vProgress(){
   const st=S.settings,gk=st.goal.distance,dk=ui.progDist||gk,t=today(),P=computePlan(),cur=P.cur;
   const pts=[];for(let k=7;k>=1;k--){const d=addDays(cur,-7*k+6);pts.push({d,v:predict(dk,estimate(d))})}pts.push({d:t,v:predict(dk,estimate(t))});
   const valid=pts.filter(p=>p.v!=null);
-  let h=`<div class="stack"><h1>Progress</h1><div class="stack s8"><div class="row"><h2>Predicted time</h2><div class="sub">${valid.length>=2?`${DL[dk]}: ${fmtDelta(valid[valid.length-1].v-valid[0].v)} in ${Math.round(daysBetween(valid[0].d,t)/7)} wk`:''}</div></div>`;
+  let h=`<div class="stack"><h1>Progress</h1><div class="stack s8"><div class="row"><h2>Predicted time</h2><div class="sub">${valid.length>=2&&Math.abs(valid[valid.length-1].v-valid[0].v)>=1?`${DL[dk]}: ${fmtDelta(valid[valid.length-1].v-valid[0].v)} in ${Math.round(daysBetween(valid[0].d,t)/7)} wk`:''}</div></div>`;
   h+=`<div class="seg">${Object.keys(DIST).map(k=>`<button class="${k===dk?'on':''}" data-a="pDist" data-v="${k}">${DL[k]}</button>`).join('')}</div>`;
   h+=valid.length?chart(pts,dk===gk?st.goal.target:null):`<div class="soft"><div class="txt">Log a run with an effort score, or add a best time, to see your trend.</div></div>`;
   h+='</div>';
@@ -466,7 +489,7 @@ function vProgress(){
   h+=`<div class="stack s4 tbl"><div class="row c"><h2>All distances</h2><button class="link" data-a="view" data-v="bests">Edit best times</button></div><div class="h"><span>Distance</span><span>Predicted</span><span>Best</span></div>`;
   for(const k of Object.keys(DIST)){const b=bestFor(k);h+=`<button class="r ${k===dk?'on':''}" data-a="pDist" data-v="${k}"><span>${DL[k]}${k===gk?' · goal':''}</span><span style="font-weight:600">${fmtT(predict(k,e5))}</span><span style="color:${b?'#111':'#5E5E5E'}">${b?fmtT(b.sec)+'<span class="small"> · '+fmtMonth(b.date||t)+'</span>':'Not set'}</span></button>`}
   h+=`<div class="small">Half and marathon predictions include a safety margin. Tap a row to see its trend.</div></div>`;
-  h+=`<div class="card"><div class="eyebrow">Your data</div><div class="small" id="sync">${syncText()}</div><div class="grid2"><button class="btn sm ghost" data-a="view" data-v="export">Export</button><button class="btn sm ghost" data-a="view" data-v="import">Import</button></div><div class="row c"><button class="link mut" data-a="reset">${ui.confirm==='reset'?'Tap again to erase everything':'Reset all data'}</button><span class="small">Version ${APP_VERSION}</span></div></div>`;
+  h+=`<div class="card"><div class="eyebrow">Your data</div><div class="small" id="sync">${syncText()}</div><div class="grid2"><button class="btn sm ghost" data-a="view" data-v="export">Export</button><button class="btn sm ghost" data-a="view" data-v="import">Import</button></div><button class="btn sm ghost" data-a="redoSetup">${ui.confirm==='redo'?'Tap again: redo setup (your runs are kept)':'Redo setup'}</button><div class="row c"><button class="link mut" data-a="reset">${ui.confirm==='reset'?'Tap again to erase everything':'Reset all data'}</button><span class="small">Version ${APP_VERSION}</span></div></div>`;
   return h+'</div>';
 }
 function chart(pts,target){
@@ -566,9 +589,10 @@ function warnings(kept){
 function vGoal(setup){
   const d=ui.draft;
   let h=`<label class="f">Distance</label><div class="chips">${Object.keys(DIST).map(k=>`<button class="chip ${d.distance===k?'on':''}" data-a="dDist" data-v="${k}">${DL[k]}</button>`).join('')}</div>`;
-  h+=`<label class="f">Target time<input data-d="target" inputmode="numeric" value="${esc(d.target)}" placeholder="${{'5k':'19:59','10k':'44:00','half':'1:39:00','marathon':'3:30:00'}[d.distance]}"></label>`;
+  h+=`<label class="f">Target time<input data-d="target" data-time="1" inputmode="numeric" pattern="[0-9:]*" value="${esc(d.target)}" placeholder="${{'5k':'19:59','10k':'44:00','half':'1:39:00','marathon':'3:30:00'}[d.distance]}"></label>`;
   h+=`<label class="f">Race date (optional)<input type="date" data-d="raceDate" value="${esc(d.raceDate)}" min="${today()}"></label>`;
   h+=`<div class="stack s8"><div class="sub">Progress mode</div><div class="seg">${MODE_ORDER.map(m=>`<button class="${d.mode===m?'on':''}" data-a="dMode" data-v="${m}">${MODES[m].label}</button>`).join('')}</div><div class="small">Light: 3 runs a week. The others: 4 runs, building ~4%, ~7% or ~10% a week.</div></div>`;
+  if(!setup)h+=`<label class="f">Weekly distance now (km)<input inputmode="decimal" data-d="weeklyKm" value="${esc(d.weeklyKm)}" placeholder="e.g. 20"></label>`;
   if(d.err)h+=`<div class="err">${d.err}</div>`;
   if(setup)return h;
   return `<div class="stack"><div class="row c"><h1>Edit goal</h1><button class="link mut" data-a="closeView">Cancel</button></div>${h}<div class="small">Saving rebuilds the plan from your current fitness, starting this week.</div><button class="btn" data-a="goalSave">Save goal</button></div>`;
@@ -576,27 +600,29 @@ function vGoal(setup){
 function vSetup(){
   const d=ui.draft||(ui.draft=newDraft());
   let h=`<div class="stack"><div class="stack s8"><div class="steps">${[1,2,3].map(i=>`<i class="${i<=ui.step?'on':''}"></i>`).join('')}</div><div class="sub">Step ${ui.step} of 3</div>`;
+  if(ui.redo&&ui.step===1)h+=`<button class="link mut" style="text-align:left" data-a="cancelRedo">Cancel and keep current setup</button>`;
   if(ui.step===1){h+=`<h1>Set your goal</h1></div>${vGoal(true)}<button class="btn" data-a="setupNext">Next</button>`}
   else if(ui.step===2){
-    h+=`<h1>Catch up your training</h1><div class="txt">Add what you can of your last few weeks so the plan starts where you actually are. Leave weeks blank if you don’t remember.</div></div>`;
-    h+=`<div class="stack s8"><div class="wk small"><span>Week of</span><span>Runs</span><span>Total km</span><span>Longest</span></div>`;
-    d.weeks.forEach((r,i)=>{h+=`<div class="wk"><span class="txt">${fmtDay(r.ws)}</span><input inputmode="numeric" data-w="${i}|runs" value="${esc(r.runs)}" aria-label="Runs, week of ${fmtDay(r.ws)}"><input inputmode="decimal" data-w="${i}|km" value="${esc(r.km)}" aria-label="Total km, week of ${fmtDay(r.ws)}"><input inputmode="decimal" data-w="${i}|longest" value="${esc(r.longest)}" aria-label="Longest run km, week of ${fmtDay(r.ws)}"></div>`});
-    h+=`<button class="link" style="text-align:left" data-a="addWeek">+ Add earlier week</button><div class="small">Prefer run by run? Skip this and log past runs in the Log tab with their dates.</div></div>`;
+    h+=`<h1>Your running now</h1><div class="txt">Roughly how many km a week are you running at the moment? The plan starts close to this.</div></div>`;
+    h+=`<label class="f">Weekly distance (km)<input class="lg" inputmode="decimal" data-d="weeklyKm" value="${esc(d.weeklyKm)}" placeholder="e.g. 20"></label><div class="small">Not running yet? Put 0 and the plan starts gently.</div>`;
+    if(d.err)h+=`<div class="err">${d.err}</div>`;
     h+=`<div class="btns"><button class="btn ghost" data-a="setupBack">Back</button><button class="btn" data-a="setupNext">Next</button></div>`;
   }else{
-    h+=`<h1>Best times</h1><div class="txt">Add any you have. Recent ones count most. You can add or change these later.</div></div>${bestsForm(d.bests)}`;
+    h+=`<h1>Race and time-trial times</h1><div class="txt">Your best recent times, if you have any. Recent ones count most. You can change these later in Progress.</div></div>${bestsForm(d.bests)}`;
     if(d.err)h+=`<div class="err">${d.err}</div>`;
     h+=`<div class="btns"><button class="btn ghost" data-a="setupBack">Back</button><button class="btn" data-a="setupDone">Build my plan</button></div>`;
   }
   return h+'</div>';
 }
 function bestsForm(b){
-  return `<div class="stack s8">${Object.keys(DIST).map(k=>`<div class="grid2" style="align-items:end"><label class="f">${DL[k]} time<input data-b="${k}|time" inputmode="numeric" value="${esc(b[k].time)}" placeholder="${{'5k':'mm:ss','10k':'mm:ss','half':'h:mm:ss','marathon':'h:mm:ss'}[k]}"></label><label class="f">When<input type="month" data-b="${k}|date" value="${esc(b[k].date)}" max="${today().slice(0,7)}"></label></div>`).join('')}</div>`;
+  return `<div class="stack s8">${Object.keys(DIST).map(k=>`<div class="grid2" style="align-items:end"><label class="f">${DL[k]} time<input data-b="${k}|time" data-time="1" inputmode="numeric" pattern="[0-9:]*" value="${esc(b[k].time)}" placeholder="${{'5k':'mm:ss','10k':'mm:ss','half':'h:mm:ss','marathon':'h:mm:ss'}[k]}"></label><label class="f">When<input type="month" data-b="${k}|date" value="${esc(b[k].date)}" max="${today().slice(0,7)}"></label></div>`).join('')}</div>`;
 }
 function bestsDraft(){const o={};for(const k of Object.keys(DIST)){const b=S.bests[k];o[k]={time:b&&b.sec?fmtT(b.sec):'',date:b&&b.date?b.date.slice(0,7):''}}return o}
 function vBests(){return `<div class="stack"><div class="row c"><h1>Best times</h1><button class="link mut" data-a="closeView">Cancel</button></div>${bestsForm(ui.draft.bests)}${ui.draft.err?`<div class="err">${ui.draft.err}</div>`:''}<button class="btn" data-a="bestsSave">Save</button></div>`}
-function readBests(b){const out={};for(const k in b){const tm=b[k].time.trim();if(!tm)continue;const sec=parseT(tm);if(!sec)return {err:`Check the ${DL[k]} time (use mm:ss or h:mm:ss).`};out[k]={sec,date:b[k].date||null}}return {bests:out}}
-function newDraft(){const cur=mondayOf(today()),weeks=[];for(let k=1;k<=4;k++)weeks.push({ws:addDays(cur,-7*k),runs:'',km:'',longest:''});return {distance:'5k',target:'',raceDate:'',mode:'medium',weeks,bests:bestsDraft(),err:null}}
+function readBests(b){const out={};for(const k in b){const tm=b[k].time.trim();if(!tm)continue;const sec=parseT(tm);if(!sec)return {err:`Check the ${DL[k]} time (use mm:ss or h:mm:ss).`};if(!okPace(sec/DIST[k]))return {err:`${DL[k]} ${fmtT(sec)} looks wrong (${fmtPace(sec/DIST[k])}). Check the time.`};out[k]={sec,date:b[k].date||null}}return {bests:out}}
+function targetErr(d){const sec=parseT(d.target);if(!sec)return 'Enter a target time, e.g. 19:59 or 1:39:00';if(!okPace(sec/DIST[d.distance]))return `${fmtT(sec)} for ${DL[d.distance]} looks wrong (${fmtPace(sec/DIST[d.distance])}). Check the time.`;return null}
+function newDraft(){const st=S.settings;if(st)return {distance:st.goal.distance,target:fmtT(st.goal.target),raceDate:st.goal.raceDate||'',mode:st.mode,weeklyKm:String(recentKm()||st.weeklyKm||''),bests:bestsDraft(),err:null};return {distance:'5k',target:'',raceDate:'',mode:'medium',weeklyKm:'',bests:bestsDraft(),err:null}}
+function recentKm(){const cur=mondayOf(today()),ks=[];for(let i=1;i<=4;i++)ks.push(weekKm(addDays(cur,-7*i)));const nz=ks.filter(k=>k>0);return nz.length?Math.round(mean(ks)):0}
 function vExport(){return `<div class="stack"><div class="row c"><h1>Export</h1><button class="link mut" data-a="closeView">Done</button></div><div class="txt">Copy this and keep it somewhere safe (Notes, email to yourself). Import it to restore.</div><textarea id="exp" readonly>${esc(JSON.stringify(S))}</textarea><button class="btn" data-a="copyExp">${ui.msg==='copied'?'Copied':'Copy'}</button></div>`}
 function vImport(){return `<div class="stack"><div class="row c"><h1>Import</h1><button class="link mut" data-a="closeView">Cancel</button></div><div class="txt">Paste an export. This replaces the data on this device.</div><textarea id="imp" placeholder="Paste here"></textarea>${ui.msg?`<div class="err">${ui.msg}</div>`:''}<button class="btn" data-a="doImport">Import</button></div>`}
 
@@ -604,12 +630,12 @@ function vImport(){return `<div class="stack"><div class="row c"><h1>Import</h1>
 function render(){
   let h;
   try{
-    if(!S.settings||!S.settings.setupDone)h=vSetup();
+    if(!S.settings||!S.settings.setupDone||ui.redo)h=vSetup();
     else if(ui.view)h={goal:()=>vGoal(false),adjust:vAdjust,bests:vBests,export:vExport,import:vImport}[ui.view]();
     else h={today:vToday,log:vLog,progress:vProgress,plan:vPlan}[ui.tab]();
   }catch(e){h=`<div class="stack"><h1>Something went wrong</h1><div class="txt">${esc(e.message)}</div><button class="btn ghost" data-a="view" data-v="export">Export data</button></div>`}
   $app.innerHTML=h;
-  const showTabs=!!(S.settings&&S.settings.setupDone&&!ui.view);
+  const showTabs=!!(S.settings&&S.settings.setupDone&&!ui.view&&!ui.redo);
   $tabs.hidden=!showTabs;
   $tabs.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===ui.tab));
 }
@@ -618,7 +644,7 @@ function go(fn){fn();render();if(typeof window.scrollTo==='function')window.scro
 /* ---------- actions ---------- */
 const A={
   tab:v=>go(()=>{ui.tab=v;ui.msg=null;ui.confirm=null;if(v==='log'){ui.form=null;ui.swap=null}}),
-  view:v=>go(()=>{ui.msg=null;if(v==='goal'){const g=S.settings.goal;ui.draft={distance:g.distance,target:fmtT(g.target),raceDate:g.raceDate||'',mode:S.settings.mode,err:null}}if(v==='bests')ui.draft={bests:bestsDraft(),err:null};ui.view=v}),
+  view:v=>go(()=>{ui.msg=null;if(v==='goal'){ui.draft=newDraft()}if(v==='bests')ui.draft={bests:bestsDraft(),err:null};ui.view=v}),
   closeView:()=>go(()=>{ui.view=null;ui.msg=null}),
   logSession:v=>go(()=>{ui.tab='log';ui.form=newForm(v);ui.swap=null;ui.msg=null}),
   logNew:()=>go(()=>{ui.tab='log';ui.form=newForm();ui.form.planned=null;ui.swap=null;ui.msg=null}),
@@ -629,6 +655,7 @@ const A={
     if(!f.date||f.date>today()){f.err='Pick a date up to today.';return render()}
     if(!(km>0)||km>200){f.err='Enter the distance in km, e.g. 7.0';return render()}
     if(!sec){f.err='Enter the time as mm:ss or h:mm:ss';return render()}
+    if(!okPace(sec/km)){f.err=`${km1(km)} km in ${fmtT(sec)} is ${fmtPace(sec/km)}, which looks wrong. Check the distance and time.`;return render()}
     const r={id:f.editing||(Date.now().toString(36)+Math.random().toString(36).slice(2,5)),date:f.date,type:f.type,km,sec,effort:f.effort,notes:f.notes.trim(),planned:f.planned||null};
     if(f.editing){const i=S.runs.findIndex(x=>x.id===f.editing);if(i>=0)S.runs[i]=r;else S.runs.push(r)}else S.runs.push(r);
     ui.swap=null;
@@ -656,15 +683,15 @@ const A={
   adjApply:()=>go(()=>{const a=ui.adj,o={};if(a.count)o.count=a.count;if(a.shift!=null)o.shift=a.shift;if(Object.keys(a.moves).length)o.moves=a.moves;if(Object.keys(o).length)S.overrides[a.ws]=o;else delete S.overrides[a.ws];save();ui.view=null;ui.tab='plan'}),
   dDist:v=>{ui.draft.distance=v;render()},
   dMode:v=>{ui.draft.mode=v;render()},
-  goalSave:()=>{const d=ui.draft,sec=parseT(d.target);if(!sec){d.err='Enter a target time, e.g. 19:59 or 1:39:00';return render()}
+  goalSave:()=>{const d=ui.draft,e=targetErr(d),sec=parseT(d.target);if(e){d.err=e;return render()}const wk=parseFloat(String(d.weeklyKm).replace(',','.'));if(!(wk>=0&&wk<=250)){d.err='Enter your weekly km, e.g. 20';return render()}S.settings.weeklyKm=wk;
     go(()=>{const cur=mondayOf(today());S.settings.goal={distance:d.distance,target:sec,raceDate:d.raceDate||null};S.settings.mode=d.mode;S.settings.startWeek=cur;S.settings.startDate=today();S.overrides={};save();ui.view=null;ui.tab='plan'})},
-  setupNext:()=>{const d=ui.draft;if(ui.step===1){if(!parseT(d.target)){d.err='Enter a target time, e.g. 19:59 or 1:39:00';return render()}d.err=null}go(()=>{ui.step++})},
+  setupNext:()=>{const d=ui.draft;d.err=null;if(ui.step===1){const e=targetErr(d);if(e){d.err=e;return render()}}if(ui.step===2){const k=parseFloat(String(d.weeklyKm).replace(',','.'));if(!(k>=0&&k<=250)){d.err='Enter your weekly km, e.g. 20';return render()}}go(()=>{ui.step++})},
   setupBack:()=>go(()=>{ui.step--}),
-  addWeek:()=>{const d=ui.draft,l=d.weeks[d.weeks.length-1];if(d.weeks.length<8)d.weeks.push({ws:addDays(l.ws,-7),runs:'',km:'',longest:''});render()},
   setupDone:()=>{const d=ui.draft,rb=readBests(d.bests);if(rb.err){d.err=rb.err;return render()}
-    go(()=>{S.settings={goal:{distance:d.distance,target:parseT(d.target),raceDate:d.raceDate||null},mode:d.mode,startWeek:mondayOf(today()),startDate:today(),setupDone:true};
-      S.history=d.weeks.map(r=>({ws:r.ws,runs:+r.runs||0,km:parseFloat(String(r.km).replace(',','.'))||0,longest:parseFloat(String(r.longest).replace(',','.'))||0})).filter(r=>r.km>0);
-      S.bests=rb.bests;save();ui.draft=null;ui.tab='today'})},
+    go(()=>{const old=S.settings||{};S.settings={goal:{distance:d.distance,target:parseT(d.target),raceDate:d.raceDate||null},mode:d.mode,shift:old.shift||0,weeklyKm:parseFloat(String(d.weeklyKm).replace(',','.'))||0,startWeek:mondayOf(today()),startDate:today(),setupDone:true};
+      S.history=[];S.overrides={};S.bests=rb.bests;FIXES=[];save();ui.draft=null;ui.redo=false;ui.tab='today'})},
+  redoSetup:()=>{if(ui.confirm!=='redo'){ui.confirm='redo';return render()}go(()=>{ui.confirm=null;ui.redo=true;ui.step=1;ui.draft=newDraft()})},
+  cancelRedo:()=>go(()=>{ui.redo=false;ui.draft=null}),
   bestsSave:()=>{const rb=readBests(ui.draft.bests);if(rb.err){ui.draft.err=rb.err;return render()}go(()=>{S.bests=rb.bests;save();ui.view=null})},
   copyExp:()=>{const ta=document.getElementById('exp');const txt=ta.value;const ok=()=>{ui.msg='copied';render()};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(ok,()=>{ta.select();try{document.execCommand('copy');ok()}catch(e){}});else{ta.select();try{document.execCommand('copy');ok()}catch(e){}}},
   doImport:()=>{const txt=document.getElementById('imp').value;try{const d=JSON.parse(txt);if(!d||typeof d!=='object'||!Array.isArray(d.runs))throw 0;S=Object.assign(blank(),d);save();go(()=>{ui.view=null;ui.msg=null;ui.tab='today'})}catch(e){ui.msg='That doesn’t look like an export from this app.';render()}},
@@ -673,6 +700,7 @@ const A={
 document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b||b.disabled)return;e.preventDefault();const f=A[b.dataset.a];if(f)f(b.dataset.v,b)});
 document.addEventListener('input',e=>{
   const el=e.target;
+  if(el.dataset.time){const v=el.value;if(!v.includes(':')||/^\d*:?\d*:?\d*$/.test(v)){const f=fmtDigits(v);if(f!==v)el.value=f}}
   if(el.dataset.f&&ui.form){ui.form[el.dataset.f]=el.value;if(el.dataset.f==='km'||el.dataset.f==='time'){const p=document.getElementById('pace');if(p)p.textContent=livePace(ui.form)}}
   if(el.dataset.d&&ui.draft)ui.draft[el.dataset.d]=el.value;
   if(el.dataset.w&&ui.draft){const [i,k]=el.dataset.w.split('|');ui.draft.weeks[+i][k]=el.value}
@@ -683,6 +711,7 @@ document.addEventListener('change',e=>{
   if(el.dataset.f==='date'&&ui.form){ui.form.date=el.value;ui.form.planned=el.value?defaultPlanned(el.value):null;if(ui.form.planned){const s=findSession(ui.form.planned);if(s)ui.form.type=s.type==='trial'?'race':s.type}render()}
   if(el.dataset.f==='planned'&&ui.form){ui.form.planned=el.value||null;if(el.value){const s=findSession(el.value);if(s)ui.form.type=s.type==='trial'?'race':s.type}render()}
 });
+sanitize();
 render();
 cloudInit();
 </script>
