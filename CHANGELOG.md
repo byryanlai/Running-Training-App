@@ -5,6 +5,9 @@ Screen mockups: https://claude.ai/artifact/S5p57ry44jdetwkGycWCR4
 
 Version numbers: MAJOR.MINOR.PATCH. New features bump MINOR, fixes bump PATCH. The current version shows at the bottom of the Progress tab.
 
+## 1.2.1 — 26 Nov 2026
+- Ready for sharing by link: people who can't save to their Claude account (signed out, or outside your organisation) now save in their own browser instead of seeing a sync error. Everyone's data stays private to them.
+
 ## 1.2.0 — 26 Nov 2026
 - Setup asks for your current weekly distance instead of a week-by-week log, then your race and time-trial times. Existing week-by-week entries are converted to a weekly figure.
 - Time fields work with the iPhone number pad: type 2000 and it becomes 20:00 as you type (130000 → 1:30:00).
