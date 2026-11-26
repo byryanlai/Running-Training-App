@@ -105,7 +105,7 @@ svg text{font-family:Inter,system-ui,sans-serif}
 </div></nav>
 <script>
 /* ---------- storage ---------- */
-const KEY='runplan.v1',APP_VERSION='1.2.0';
+const KEY='runplan.v1',APP_VERSION='1.2.1';
 function blank(){return {settings:null,runs:[],history:[],bests:{},overrides:{}}}
 function load(){try{const t=localStorage.getItem(KEY);if(t)return Object.assign(blank(),JSON.parse(t))}catch(e){}return blank()}
 let S=load();
@@ -118,7 +118,7 @@ async function cloudWrite(){
   if(!cloud.doc)return;if(cloud.busy){cloud.again=true;return}
   cloud.busy=true;
   try{await cloud.doc.set({json:JSON.stringify(S),updatedAt:S.updatedAt||Date.now()});cloud.state='synced'}
-  catch(e){cloud.state=e&&e.code==='quota_exceeded'?'full':'error'}
+  catch(e){const c=e&&e.code;if(c==='invalid_argument'||c==='not_granted'||c==='capability_disabled'||c==='revoked'){cloud.doc=null;cloud.state='local'}else cloud.state=c==='quota_exceeded'?'full':'error'}
   cloud.busy=false;if(cloud.again){cloud.again=false;cloudWrite()}
   refreshSync();
 }
