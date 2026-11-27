@@ -1,9 +1,11 @@
 # Run Plan — changelog
 
 Live app: https://ryryououk-droid.github.io/Running-Training-App/ (hosted on GitHub Pages; the claude.ai copy was retired on 27 Nov 2026)
-Screen mockups: https://claude.ai/artifact/S5p57ry44jdetwkGycWCR4
 
 Version numbers: MAJOR.MINOR.PATCH. New features bump MINOR, fixes bump PATCH. The current version shows in Settings.
+
+## 1.3.1 — 27 Nov 2026
+- Update check: when a newer version is published, a banner says "Version X is available". Tap Update to load it straight away, skipping the phone's cached copy. Checks on opening, when you switch back to the app, and every 30 minutes. Your data isn't affected.
 
 ## 1.3.0 — 27 Nov 2026
 - Progress tiles: "Avg km/week" now includes the current week (from your first logged run), and "This week" shows runs and km including unscheduled runs. Replaces the old 4-week average and planned-runs count, which showed 0 and — in your first week.
