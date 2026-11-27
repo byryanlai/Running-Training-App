@@ -93,6 +93,9 @@ nav.tabs div{max-width:480px;margin:0 auto;display:grid;grid-template-columns:re
 nav.tabs button{height:48px;border:none;background:none;font:inherit;font-size:13px;color:var(--mut);cursor:pointer}
 nav.tabs button.on{color:var(--ink);font-weight:700}
 .err{color:var(--acc);font-size:13px}
+.upd{position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:6;max-width:456px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink);color:var(--onink);border-radius:14px;padding:10px 10px 10px 16px;font-size:14px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.upd[hidden]{display:none}
+.upd .btn{width:auto;background:var(--acc);border-color:var(--acc);color:var(--onacc)}
 .pill{min-height:32px;padding:0 12px;border:none;border-radius:16px;background:var(--accsoft);color:var(--acc);font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
 .icon{width:40px;height:40px;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 svg text{font-family:Inter,system-ui,sans-serif}
@@ -100,6 +103,7 @@ svg text{font-family:Inter,system-ui,sans-serif}
 </head>
 <body>
 <div id="app"></div>
+<div id="upd" class="upd" hidden><span id="updtxt">New version available</span><button class="btn sm" data-a="doUpdate">Update</button></div>
 <nav class="tabs" id="tabs" hidden><div>
 <button data-a="tab" data-v="today">Today</button>
 <button data-a="tab" data-v="log">Log</button>
@@ -108,7 +112,7 @@ svg text{font-family:Inter,system-ui,sans-serif}
 </div></nav>
 <script>
 /* ---------- storage ---------- */
-const KEY='runplan.v1',APP_VERSION='1.3.0',THEME_KEY='runplan.theme';
+const KEY='runplan.v1',APP_VERSION='1.3.1',THEME_KEY='runplan.theme';
 function blank(){return {settings:null,runs:[],history:[],bests:{},overrides:{}}}
 function load(){try{const t=localStorage.getItem(KEY);if(t)return Object.assign(blank(),JSON.parse(t))}catch(e){}return blank()}
 let S=load();
@@ -692,6 +696,7 @@ const A={
   cancelEdit:()=>go(()=>{ui.form=newForm();ui.msg=null}),
   delRun:v=>{if(ui.confirm!==v){ui.confirm=v;return render()}S.runs=S.runs.filter(r=>r.id!==v);ui.confirm=null;save();render()},
   pDist:v=>{ui.progDist=v;render()},
+  doUpdate:()=>{const v=ui.newVersion||Date.now();location.replace(location.pathname+'?v='+encodeURIComponent(v))},
   theme:v=>{try{localStorage.setItem(THEME_KEY,v)}catch(e){}applyTheme();render()},
   mode:v=>{S.settings.mode=v;save();render()},
   adjust:v=>go(()=>{const cur=mondayOf(today()),ws=v==='next'?addDays(cur,7):cur,o=S.overrides[ws]||{};ui.adj={ws,count:o.count||null,shift:o.shift!=null?o.shift:null,moves:Object.assign({},o.moves||{})};ui.view='adjust'}),
@@ -737,6 +742,19 @@ try{window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').addEven
 try{new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}catch(e){}
 sanitize();
 render();
+/* update check: compares this version with the one published on GitHub */
+const newer=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)>(y[i]||0))return true;if((x[i]||0)<(y[i]||0))return false}return false};
+let lastCheck=0;
+async function checkUpdate(){
+  if(typeof location==='undefined'||typeof fetch!=='function')return;
+  if(!/^https?:/.test(location.protocol)||(window.claude&&window.claude.use))return;
+  if(Date.now()-lastCheck<60000)return;lastCheck=Date.now();
+  try{const r=await fetch(location.pathname+'?check='+Date.now(),{cache:'no-store'});if(!r.ok)return;const t=await r.text();const m=t.match(/APP_VERSION='([0-9.]+)'/);
+    if(m&&newer(m[1],APP_VERSION)){ui.newVersion=m[1];document.getElementById('updtxt').textContent='Version '+m[1]+' is available';document.getElementById('upd').hidden=false}}catch(e){}
+}
+checkUpdate();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
+setInterval(checkUpdate,30*60*1000);
 cloudInit();
 </script>
 </body>
