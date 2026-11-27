@@ -2,7 +2,7 @@
 
 **Run Plan**: an adaptive running training plan you add to your iPhone home screen as a web app.
 
-- Live app: https://ryryououk-droid.github.io/Running-Training-App/ (open in Safari, then Share › Add to Home Screen)
+- Live app: https://byryanlai.github.io/Running-Training-App/ (open in Safari, then Share › Add to Home Screen)
 - Changes by version: [CHANGELOG.md](CHANGELOG.md)
 
 ## What it does
