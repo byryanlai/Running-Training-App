@@ -1,7 +1,6 @@
 # Run Plan — changelog
 
 Live app: https://ryryououk-droid.github.io/Running-Training-App/ (hosted on GitHub Pages; the claude.ai copy was retired on 27 Nov 2026)
-Screen mockups: https://claude.ai/artifact/S5p57ry44jdetwkGycWCR4
 
 Version numbers: MAJOR.MINOR.PATCH. New features bump MINOR, fixes bump PATCH. The current version shows in Settings.
 
