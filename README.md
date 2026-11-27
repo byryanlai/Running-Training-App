@@ -2,7 +2,7 @@
 
 **Run Plan**: an adaptive running training plan you add to your iPhone home screen as a web app.
 
-- Live app: https://claude.ai/artifact/BAHfgZZvL2AH5QfPQJz9WJ
+- Live app: https://ryryououk-droid.github.io/Running-Training-App/ (open in Safari, then Share › Add to Home Screen)
 - Screen mockups: https://claude.ai/artifact/S5p57ry44jdetwkGycWCR4
 - Changes by version: [CHANGELOG.md](CHANGELOG.md)
 
@@ -21,4 +21,6 @@
 ## Versions
 Each release is a commit tagged `vX.Y.Z`. To see an older version, check out its tag, e.g. `git checkout v1.0.0`.
 
-Training data is not stored in this repo. It's saved privately to the owner's Claude account.
+Training data is not stored in this repo. Each person's data is saved in their own browser on their device; use Settings › Export for a backup.
+
+Merging into `main` updates the live app through GitHub Pages within a few minutes.
